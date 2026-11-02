@@ -16,8 +16,11 @@ This repository is intentionally structured as a practical foundation rather tha
 
 - `recomp/` — PowerPC decode and ARM64 code generation experiments.
 - `runtime/` — memory, thread, and compatibility abstractions.
+- `runtime/gamedata/` — read-only catalog for the separate Install Disc and
+  Play Disc sources.
 - `android/` — Android native library skeleton and app integration points.
 - `tests/` — synthetic validation for core infrastructure.
+- `docs/` — architecture, game-data status, and development roadmap.
 - `.github/workflows/` — native and Android CI configurations.
 
 ## Build instructions
@@ -48,8 +51,15 @@ Because the Xbox 360 GTA V ISO is not available in this environment, the project
 - Register state transitions
 - Memory arena allocation behavior
 - ARM64 instruction emission primitives
+- Two-disc game-data catalog and conflict reporting
 
-These tests are intentionally limited to the infrastructure itself and never claim to validate game behavior.
+These tests are intentionally limited to the infrastructure itself and never
+claim to validate game behavior.
+
+The catalog does not assume either disc is sufficient, does not overwrite
+conflicting files, and does not claim to identify the actual launch executable
+or its dependencies before real disc contents are inspected. See
+[`docs/GAME_DATA_STATUS.md`](docs/GAME_DATA_STATUS.md).
 
 ## Current status
 

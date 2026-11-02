@@ -1,4 +1,5 @@
 add_library(runtime
+    src/gamedata/GameDataCatalog.cpp
     src/memory/MemoryArena.cpp
 )
 

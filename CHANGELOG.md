@@ -12,3 +12,6 @@
   unavailable legacy `tools` package.
 - Passed the installed NDK path explicitly into CMake and selected the
   runner-provided Makefiles generator for the Android cross-build.
+- Added a read-only two-disc game-data catalog with source attribution,
+  duplicate/conflict reporting, resource validation, and synthetic fixtures.
+- Documented game-data status, architecture, and follow-up integration stages.
