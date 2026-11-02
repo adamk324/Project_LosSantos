@@ -10,3 +10,5 @@
   Windows and Ubuntu.
 - Updated Android SDK setup to install `platform-tools` instead of the
   unavailable legacy `tools` package.
+- Passed the installed NDK path explicitly into CMake and selected the
+  runner-provided Makefiles generator for the Android cross-build.
