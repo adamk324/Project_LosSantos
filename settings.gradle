@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Project_Los_Santos"
 include(":app")
+project(":app").projectDir = file("android/app")
