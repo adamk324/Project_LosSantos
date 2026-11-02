@@ -1,0 +1,7 @@
+add_executable(test_powerpc_decoder unit/test_powerpc_decoder.cpp)
+target_link_libraries(test_powerpc_decoder PRIVATE recomp)
+add_test(NAME test_powerpc_decoder COMMAND test_powerpc_decoder)
+
+add_executable(test_memory_arena unit/test_memory_arena.cpp)
+target_link_libraries(test_memory_arena PRIVATE runtime)
+add_test(NAME test_memory_arena COMMAND test_memory_arena)

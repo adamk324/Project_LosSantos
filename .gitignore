@@ -1,0 +1,11 @@
+build/
+build-android/
+CMakeUserPresets.json
+.vscode/
+.DS_Store
+*.log
+*.apk
+*.aab
+*.so
+*.dll
+*.exe
