@@ -25,34 +25,32 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
+          packages: platform-tools platforms;android-35 build-tools;35.0.0 cmake;3.22.1 ndk;26.3.11579264
 
-      - name: Install Android NDK
-        id: setup-ndk
-        uses: nttld/setup-ndk@v1
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
-          ndk-version: r26d
+          gradle-version: '8.9'
 
-      - name: Configure CMake for Android
-        env:
-          ANDROID_NDK: ${{ steps.setup-ndk.outputs.ndk-path }}
+      - name: Build ARM64 debug APK
         run: |
-          cmake -S . -B build-android \
-            -G "Unix Makefiles" \
-            -DANDROID_ABI=arm64-v8a \
-            -DANDROID_PLATFORM=android-29 \
-            -DBUILD_ANDROID=ON \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake"
+          set -o pipefail
+          gradle --no-daemon :app:assembleDebug --stacktrace 2>&1 | tee android-build.log
 
-      - name: Build Android target
-        run: cmake --build build-android --config Release
+      - name: Verify APK contents and ARM64 ABI
+        run: python3 scripts/verify_apk.py android/app/build/outputs/apk/debug/app-debug.apk
 
-      - name: Upload native artifacts
+      - name: Upload installable debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-los-santos-android-arm64-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload Android build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: android-native-build
-          path: |
-            build-android/**
-            android/**
+          name: android-build-log
+          path: android-build.log
           if-no-files-found: warn

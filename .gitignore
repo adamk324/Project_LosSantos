@@ -1,5 +1,8 @@
 build/
 build-android/
+android/app/build/
+.gradle/
+local.properties
 CMakeUserPresets.json
 .vscode/
 .DS_Store

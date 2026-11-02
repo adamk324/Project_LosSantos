@@ -8,11 +8,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 include(CTest)
 
-option(BUILD_ANDROID "Build the Android native library skeleton" OFF)
+option(BUILD_ANDROID "Build the Android native library" OFF)
 
 add_subdirectory(recomp)
 add_subdirectory(runtime)
-add_subdirectory(tests)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
 
 if(BUILD_ANDROID)
     add_subdirectory(android)

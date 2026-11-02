@@ -15,3 +15,8 @@
 - Added a read-only two-disc game-data catalog with source attribution,
   duplicate/conflict reporting, resource validation, and synthetic fixtures.
 - Documented game-data status, architecture, and follow-up integration stages.
+- Added an installable ARM64 Android diagnostics app with JNI runtime
+  initialization, live Vulkan capability queries, and GitHub Actions APK
+  delivery.
+- Documented APK installation and the limits of automated and hardware
+  validation.

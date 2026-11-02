@@ -2,6 +2,11 @@
 
 ## Current: independent infrastructure
 
+- [x] Build an installable ARM64 Android diagnostics app with JNI native
+  initialization and a Vulkan capability probe.
+- [x] Upload the debug APK as a GitHub Actions artifact and verify its ABI.
+- [ ] Install and exercise the APK on the Xiaomi 15T Pro; CI is not hardware
+  validation.
 - [x] Scan Install Disc and Play Disc as separate directory sources.
 - [x] Track each resource's source disc and relative path.
 - [x] Merge identical duplicate content without losing provenance.
@@ -23,6 +28,10 @@
 
 ## Later: runtime and Android integration
 
+- [ ] Add Android game-data selection/import UI and connect it to the unified
+  catalog without requiring physical discs at runtime.
+- [ ] Add real Vulkan surface/swapchain rendering and device-specific graphics
+  validation before claiming renderer support.
 - [ ] Add a format-aware executable loader that resolves reads through the
   unified virtual filesystem.
 - [ ] Establish an explicit, documented conflict-resolution policy based on

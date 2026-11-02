@@ -18,7 +18,8 @@ This repository is intentionally structured as a practical foundation rather tha
 - `runtime/` — memory, thread, and compatibility abstractions.
 - `runtime/gamedata/` — read-only catalog for the separate Install Disc and
   Play Disc sources.
-- `android/` — Android native library skeleton and app integration points.
+- `android/app/` — installable Android debug app and native JNI entry points.
+- `android/src/main/cpp/` — JNI lifecycle and Vulkan capability probe.
 - `tests/` — synthetic validation for core infrastructure.
 - `docs/` — architecture, game-data status, and development roadmap.
 - `.github/workflows/` — native and Android CI configurations.
@@ -52,6 +53,7 @@ Because the Xbox 360 GTA V ISO is not available in this environment, the project
 - Memory arena allocation behavior
 - ARM64 instruction emission primitives
 - Two-disc game-data catalog and conflict reporting
+- Android ARM64 app, JNI runtime initialization, and Vulkan capability reporting
 
 These tests are intentionally limited to the infrastructure itself and never
 claim to validate game behavior.
@@ -60,6 +62,18 @@ The catalog does not assume either disc is sufficient, does not overwrite
 conflicting files, and does not claim to identify the actual launch executable
 or its dependencies before real disc contents are inspected. See
 [`docs/GAME_DATA_STATUS.md`](docs/GAME_DATA_STATUS.md).
+
+## Android bring-up
+
+The Android workflow builds an ARM64 debug APK and uploads it as the
+`project-los-santos-android-arm64-debug` artifact. See the
+[Android installation and testing guide](docs/ANDROID_TESTING.md) for download,
+installation, diagnostics, and validation details.
+
+The APK is an independent platform bring-up shell: it starts without game data
+and reports actual Android/device information. The Vulkan probe is not a
+renderer, and no physical-device compatibility is claimed until tested on
+hardware.
 
 ## Current status
 
