@@ -180,6 +180,15 @@ Open-source leads reviewed:
 - [Xenia](https://github.com/xenia-project/xenia) has relevant Xbox execution
   and XContent/STFS metadata structures, but is not evidence that a PC GTA V
   RPF reader supports Xbox archive variants.
+- [balika011/RPF7](https://github.com/balika011/RPF7/tree/9f2d73c698b8633b923a9e30cfa2c93697c198e2)
+  contains a separate [`xbox360` platform source](https://github.com/balika011/RPF7/blob/9f2d73c698b8633b923a9e30cfa2c93697c198e2/RPF7Console/xbox360.cpp),
+  but its [console sample](https://github.com/balika011/RPF7/blob/9f2d73c698b8633b923a9e30cfa2c93697c198e2/RPF7Console/RPF7Console.cpp)
+  selects PS3 (`IS_XBOX360` is `0`, `IS_PS3` is `1`) and its
+  [README](https://github.com/balika011/RPF7/blob/9f2d73c698b8633b923a9e30cfa2c93697c198e2/README)
+  requires user-supplied platform AES keys. The repository root has no listed
+  license file. It was not run, reused, or used to inspect/decrypt these
+  archives; its existence alone does not validate compatibility with these
+  retail Xbox 360 RPF files.
 
 No third-party implementation is being copied into this repository. Before
 adopting any RPF reader, verify its license and demonstrate Xbox 360 support on

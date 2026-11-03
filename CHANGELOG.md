@@ -32,3 +32,5 @@
   the independent inventory and recorded hashes for all conflicting files.
 - Parsed the four GTA V packages' bounded public STFS file tables and added
   synthetic coverage for the metadata-only table reader.
+- Reviewed a console RPF7 reader lead and documented why it is not yet a
+  suitable, license-verified metadata-only parser for these archives.
