@@ -23,6 +23,7 @@ using project_los_santos::runtime::gamedata::LookupStatus;
 using project_los_santos::runtime::gamedata::ResolutionPolicy;
 using project_los_santos::runtime::gamedata::SourceFormat;
 using project_los_santos::runtime::gamedata::inspectStfsPackageHeader;
+using project_los_santos::runtime::gamedata::inspectStfsPackageFileTable;
 
 namespace {
 
@@ -57,6 +58,12 @@ void writeFile(const fs::path& path, const std::string& contents) {
 void writeLittleEndian16(std::vector<uint8_t>& image, std::size_t offset, uint16_t value) {
     image[offset] = static_cast<uint8_t>(value);
     image[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+}
+
+void writeLittleEndian24(std::vector<uint8_t>& image, std::size_t offset, uint32_t value) {
+    image[offset] = static_cast<uint8_t>(value);
+    image[offset + 1u] = static_cast<uint8_t>(value >> 8u);
+    image[offset + 2u] = static_cast<uint8_t>(value >> 16u);
 }
 
 void writeLittleEndian32(std::vector<uint8_t>& image, std::size_t offset, uint32_t value) {
@@ -98,10 +105,28 @@ std::vector<uint8_t> makeStfsPackageHeader() {
     writeBigEndian32(header, 0x348u, 2u);
     writeBigEndian32(header, 0x360u, 0x545408A7u);
     header[0x379u] = 0x24u;
-    writeBigEndian16(header, 0x37Cu, 1u);
+    header[0x37Bu] = 1u;
+    writeLittleEndian16(header, 0x37Cu, 1u);
+    writeLittleEndian24(header, 0x37Eu, 0u);
+    writeBigEndian32(header, 0x395u, 2u);
     writeBigEndian32(header, 0x39Du, 0u);
     writeBigEndian32(header, 0x3A9u, 0u);
     return header;
+}
+
+void writeStfsDirectoryEntry(std::vector<uint8_t>& package, std::size_t offset,
+                             const std::string& name, uint8_t attributes,
+                             uint32_t validBlocks, uint32_t allocatedBlocks,
+                             uint32_t startBlock, uint16_t parentIndex,
+                             uint32_t size) {
+    assert(!name.empty() && name.size() <= 40u);
+    std::copy(name.begin(), name.end(), package.begin() + static_cast<std::ptrdiff_t>(offset));
+    package[offset + 40u] = static_cast<uint8_t>(attributes | name.size());
+    writeLittleEndian24(package, offset + 41u, validBlocks);
+    writeLittleEndian24(package, offset + 44u, allocatedBlocks);
+    writeLittleEndian24(package, offset + 47u, startBlock);
+    writeBigEndian16(package, offset + 50u, parentIndex);
+    writeBigEndian32(package, offset + 52u, size);
 }
 
 bool rejectsStfsHeader(const std::vector<uint8_t>& bytes, uint64_t packageSize) {
@@ -386,7 +411,78 @@ int main() {
     assert(packageMetadata.headerSize == 0x500u);
     assert(packageMetadata.titleId == 0x545408A7u);
     assert(packageMetadata.fileTableBlockCount == 1u);
+    assert(packageMetadata.fileTableBlockNumber == 0u);
+    assert(packageMetadata.stfsFlags == 1u);
+    assert(packageMetadata.totalBlockCount == 2u);
     assert(packageMetadata.volumeType == 0u);
+
+    auto littleEndianTableCount = packageHeader;
+    writeLittleEndian16(littleEndianTableCount, 0x37Cu, 0x0102u);
+    std::istringstream endianPackage(
+        std::string(littleEndianTableCount.begin(), littleEndianTableCount.end()),
+        std::ios::in | std::ios::binary);
+    assert(inspectStfsPackageHeader(endianPackage, 0x500u).fileTableBlockCount ==
+           0x0102u);
+
+    std::vector<uint8_t> packageWithTable(0x4000u, 0u);
+    std::copy(packageHeader.begin(), packageHeader.end(), packageWithTable.begin());
+    writeStfsDirectoryEntry(packageWithTable, 0x2000u, "assets", 0x80u,
+                            0u, 0u, 0u, 0xFFFFu, 0u);
+    writeStfsDirectoryEntry(packageWithTable, 0x2040u, "sample.bin", 0u,
+                            1u, 1u, 1u, 0u, 4u);
+    const std::string packageWithTableContents(packageWithTable.begin(),
+                                                packageWithTable.end());
+    std::istringstream packageWithTableStream(packageWithTableContents,
+                                               std::ios::in | std::ios::binary);
+    const auto directoryEntries =
+        inspectStfsPackageFileTable(packageWithTableStream, packageWithTable.size());
+    assert(directoryEntries.size() == 2u);
+    assert(directoryEntries[0].name == "assets");
+    assert(directoryEntries[0].isDirectory);
+    assert(directoryEntries[0].directoryIndex == 0xFFFFu);
+    assert(directoryEntries[1].name == "sample.bin");
+    assert(!directoryEntries[1].isDirectory);
+    assert(directoryEntries[1].directoryIndex == 0u);
+    assert(directoryEntries[1].validDataBlocks == 1u);
+    assert(directoryEntries[1].allocatedDataBlocks == 1u);
+    assert(directoryEntries[1].startBlockNumber == 1u);
+    assert(directoryEntries[1].size == 4u);
+
+    bool stfsTableBoundsRejected = false;
+    try {
+        std::istringstream truncatedTable(packageWithTableContents,
+                                          std::ios::in | std::ios::binary);
+        (void)inspectStfsPackageFileTable(truncatedTable, 0x2FFFu);
+    } catch (const std::runtime_error&) {
+        stfsTableBoundsRejected = true;
+    }
+    assert(stfsTableBoundsRejected);
+
+    bool stfsInvalidParentRejected = false;
+    try {
+        auto invalidParentPackage = packageWithTable;
+        writeBigEndian16(invalidParentPackage, 0x2040u + 50u, 1u);
+        std::istringstream invalidParent(
+            std::string(invalidParentPackage.begin(), invalidParentPackage.end()),
+            std::ios::in | std::ios::binary);
+        (void)inspectStfsPackageFileTable(invalidParent, invalidParentPackage.size());
+    } catch (const std::runtime_error&) {
+        stfsInvalidParentRejected = true;
+    }
+    assert(stfsInvalidParentRejected);
+
+    bool stfsUnsupportedTableChainRejected = false;
+    try {
+        auto multipleTablePackage = packageWithTable;
+        writeLittleEndian16(multipleTablePackage, 0x37Cu, 2u);
+        std::istringstream multipleTables(
+            std::string(multipleTablePackage.begin(), multipleTablePackage.end()),
+            std::ios::in | std::ios::binary);
+        (void)inspectStfsPackageFileTable(multipleTables, multipleTablePackage.size());
+    } catch (const std::runtime_error&) {
+        stfsUnsupportedTableChainRejected = true;
+    }
+    assert(stfsUnsupportedTableChainRejected);
 
     std::vector<uint8_t> packageInIso = packageHeader;
     packageInIso.resize(0x500u, 0u);

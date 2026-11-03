@@ -37,9 +37,10 @@ conflicting paths as issues.
 Synthetic tests cover directory and ISO source pairs, duplicate and conflicting
 files, explicit source selection, missing resources, invalid ISO metadata,
 manifest provenance, bounded reads, and malformed STFS package headers. A
-metadata-only STFS reader exposes public header fields; it does not parse
-package file tables or protected payloads. These tests do not prove full
-XDVDFS compatibility or GTA V execution. See
+metadata-only STFS reader exposes public header fields and a bounded,
+single-block public file-table listing; it does not read package payload files,
+verify the package hash tree, or handle chained file-table blocks. These tests
+do not prove full XDVDFS compatibility or GTA V execution. See
 [GAME_DATA_STATUS.md](./GAME_DATA_STATUS.md) and [RESEARCH.md](./RESEARCH.md)
 for observed disc metadata and parser limits.
 

@@ -30,3 +30,5 @@
 
 - Reconciled the full hash-producing scan of both supplied disc images against
   the independent inventory and recorded hashes for all conflicting files.
+- Parsed the four GTA V packages' bounded public STFS file tables and added
+  synthetic coverage for the metadata-only table reader.

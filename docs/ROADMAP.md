@@ -33,7 +33,7 @@
 - [ ] Determine the launch behavior of the two XEX builds using additional
   non-decrypting evidence; do not select a primary executable based only on
   disc metadata or filename.
-- [ ] Investigate the four STFS packages' public file-table metadata and
+- [x] Investigate the four STFS packages' public file-table metadata and
   relationship without decrypting or extracting protected payloads.
 - [ ] Find or implement a GTA V Xbox 360-specific RPF directory-table reader;
   validate archive structure before using any counts or entry types.

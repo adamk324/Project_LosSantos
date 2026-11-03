@@ -17,9 +17,10 @@
   justified for the observed conflicts.
 - The two XEX metadata records differ in media ID and disc number, but the
   primary game launch target and complete game dependency set remain unknown.
-- The four PIRS files are identified as STFS packages from public header
-  metadata. The metadata-only validator has synthetic tests; internal file
-  tables and package relationships have not been independently validated.
+- The four GTA V PIRS files' public one-block STFS file tables have been
+  inspected. The in-project parser currently supports one file-table block
+  and does not verify STFS hash trees or read package payload files. The
+  relationship among the `partN.rpf` files is not established.
 - The conflicting RPF files have `RPF7` signatures and header-like fields, but
   their directory tables and nested resource entries are not parsed. PC GTA V
   reader compatibility with these Xbox 360 files is unproven; encrypted

@@ -4,16 +4,17 @@
 
 The two user-provided images were opened read-only. Work was limited to
 directory inventory, hashes, XEX2 execution metadata, public XContent/STFS
-header fields, and raw RPF header bytes. No files were extracted, images
-modified, protected executable payloads decrypted, or archive tables
-decrypted. The results below distinguish directly observed bytes from format
-interpretations and unverified hypotheses.
+headers and file-table entries, and RPF signatures/header bytes. No files were
+extracted, images modified, protected executable payloads decrypted, or
+archive tables decrypted. The results below distinguish directly observed
+bytes from format interpretations and unverified hypotheses.
 
 The documented XEX2 and XContent field layouts were cross-checked against
 Xenia's public research implementation:
 [XEX2 metadata structures](https://github.com/xenia-project/xenia/blob/master/src/xenia/kernel/util/xex2_info.h)
 and
-[XContent/STFS structures](https://github.com/xenia-project/xenia/blob/master/src/xenia/vfs/devices/stfs_xbox.h).
+[XContent/STFS structures](https://github.com/xenia-project/xenia/blob/master/src/xenia/vfs/devices/stfs_xbox.h),
+with its [STFS directory-table traversal](https://github.com/xenia-project/xenia/blob/master/src/xenia/vfs/devices/stfs_container_device.cc).
 These are implementation references, not an official Microsoft format
 specification. Xenia is BSD-3-Clause licensed.
 
@@ -88,10 +89,12 @@ protected payload was decrypted.
 
 ## Disc 1 PIRS/STFS content packages
 
-The four package files start with `PIRS`. Public XContent header fields and
-metadata identify each as an STFS package with title ID `0x545408A7`, content
-type `2`, metadata version `2`, header-size field `0xAD0E`, STFS volume type,
-one file-table block, and zero data-file count.
+The four GTA V package files start with `PIRS`. Public XContent header fields
+and metadata identify each as an STFS package with title ID `0x545408A7`,
+content type `2`, metadata version `2`, header-size field `0xAD0E`, STFS volume
+type, one file-table block, and zero `data_file_count`. In the documented
+XContent layout, zero indicates an STFS package (rather than a multi-file
+SVOD); it does not mean the package has no file contents.
 
 | Package filename | Bytes | Content ID |
 |---|---:|---|
@@ -100,10 +103,29 @@ one file-table block, and zero data-file count.
 | `545408A700000002` | 2,146,807,808 | `96CC1A6939BCD6EF4F0522A1E039EEBC294E3544` |
 | `545408A700000003` | 1,817,518,080 | `85C21A6E9328BAB01B957E8FBD1C6A3B64E83FBA` |
 
-The names, matching title IDs, and adjacent ordinal suffixes are confirmed
-metadata. Whether the packages are sequential pieces of one install payload,
-independent content items, or use another relationship is still a hypothesis;
-their internal file tables and protected payloads were not inspected.
+All four package descriptors use STFS flags `0x01`, file-table block number
+zero, and one file-table block. The header size rounds up to `0xB000`; the
+public 0x1000-byte directory block is at package-relative offset `0xC000`.
+Each table contains exactly two root entries, both with parent index `0xFFFF`:
+
+| Package | Public file-table entries |
+|---|---|
+| `545408A700000000` | `part0.rpf` (2,133,954,560 bytes; 520,985 allocated blocks); `part0.timestamp` (14 bytes; 1 block) |
+| `545408A700000001` | `part1.rpf` (2,134,566,912 bytes; 521,135 allocated blocks); `part1.timestamp` (14 bytes; 1 block) |
+| `545408A700000002` | `part2.rpf` (2,134,116,352 bytes; 521,025 allocated blocks); `part2.timestamp` (14 bytes; 1 block) |
+| `545408A700000003` | `part3.rpf` (1,806,764,032 bytes; 441,105 allocated blocks); `part3.timestamp` (14 bytes; 1 block) |
+
+The four `.rpf` file starts each contain the four-byte signature `RPF7`.
+Their aggregate declared size is 8,209,401,856 bytes. These observations
+confirm the package directory entries and signature bytes, but do not validate
+the RPF directory tables, establish that the four files form one archive, or
+show that they are independent archives. No payload file was extracted or
+decrypted.
+
+The names, matching title IDs, ordinal suffixes, file-table entries, and
+signature bytes are confirmed observations. Any interpretation of the
+`partN.rpf` files' relationship beyond their matching numbering and signatures
+remains unverified.
 
 ## RPF conflicts
 
@@ -176,8 +198,9 @@ previously reported file, shared-path, duplicate, conflict, and unique-path
 counts. The prior inventory is therefore reconciled for these images and this
 scanner version; broader XDVDFS/XGD3 layout coverage is still not established.
 
-The metadata-only STFS reader validates the public package signature, header
-size, and STFS descriptor and exposes selected public fields; it does not parse
-internal STFS file tables. XEX imports and RPF directory tables are not parsed.
-These remain separate format investigations; no executable or conflict winner
-is chosen by disc precedence.
+The metadata-only STFS reader validates public package/header fields and can
+parse a single bounded 0x1000-byte STFS file-table block. Synthetic tests cover
+its field decoding, entry bounds, and parent indices. It does not follow
+multi-block file-table chains, verify the STFS hash tree, read package payload
+files, or decrypt content. XEX imports and RPF directory tables are not parsed.
+No executable or conflict winner is chosen by disc precedence.

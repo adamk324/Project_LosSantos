@@ -38,10 +38,11 @@ The metadata establishes distinct disc builds/media identities, not which
 executable is the game's primary launch target. No executable has been
 selected and no protected payload was decrypted.
 
-The four Disc 1 content files begin with `PIRS`. Their public XContent metadata
-identifies STFS packages for title `0x545408A7`, content type `2`, metadata
-version `2`, header size `0xAD0E`, STFS volume type, one file-table block, and
-zero data-file count. Their 20-byte content IDs are:
+The four GTA V Disc 1 content files begin with `PIRS`. Their public XContent
+metadata identifies STFS packages for title `0x545408A7`, content type `2`,
+metadata version `2`, header size `0xAD0E`, STFS volume type, one file-table
+block, and zero `data_file_count` (the STFS package form, not an empty package).
+Their 20-byte content IDs are:
 
 | Package | Content ID |
 |---|---|
@@ -49,6 +50,14 @@ zero data-file count. Their 20-byte content IDs are:
 | `545408A700000001` | `03C98730D46C8F9CE6A79F6BA75802AC3C6DA21E` |
 | `545408A700000002` | `96CC1A6939BCD6EF4F0522A1E039EEBC294E3544` |
 | `545408A700000003` | `85C21A6E9328BAB01B957E8FBD1C6A3B64E83FBA` |
+
+Each public file table contains two root entries: a `partN.rpf` file and a
+14-byte `partN.timestamp` file. All four RPF-named files begin with `RPF7`;
+their combined declared size is 8,209,401,856 bytes. This establishes the
+package contents' public names, sizes, and first signature bytes, but not
+whether the four RPF parts are a single multipart archive or separate related
+archives. The in-project metadata parser currently handles one table block
+and does not read payload content or verify the STFS hash tree.
 
 The RPF conflict files begin with `RPF7`. Their full-file SHA-256 hashes,
 sizes, big-endian header observations, and the limits of those observations
