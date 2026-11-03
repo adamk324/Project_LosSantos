@@ -25,3 +25,8 @@
   selection.
 - Added synthetic XDVDFS and STFS-header validation and documented the
   evidence-based two-disc forensic findings and unresolved format questions.
+
+## 2026-11-03
+
+- Reconciled the full hash-producing scan of both supplied disc images against
+  the independent inventory and recorded hashes for all conflicting files.

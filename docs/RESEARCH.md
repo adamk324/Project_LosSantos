@@ -22,14 +22,16 @@ For XDVDFS, the
 read-only directory traversal and XDVDFS/XISO image support; it is MIT
 licensed. It is an independent implementation reference, not proof that every
 Xbox 360 XGD3 layout is supported. The scanner in this project is separately
-implemented and remains subject to real-image validation.
+implemented and has been checked against both supplied images.
 
 ## Image inventory
 
 Both images are 8,738,846,720 bytes. Their XDVDFS volume descriptors were
 observed at image-relative base `0x02080000`; descriptor and file-sector
-offsets are interpreted relative to that base. The earlier independent
-read-only listing reported:
+offsets are interpreted relative to that base. The optimized, read-only
+`GameDataCatalog` scan independently reproduced the earlier directory listing.
+It hashed each file's bounded data region and byte-compared entries whose
+hashes and sizes matched:
 
 | Metric | Install Disc | Play Disc |
 |---|---:|---:|
@@ -39,13 +41,13 @@ read-only listing reported:
 | Conflicting shared paths | 3 | |
 | Unique combined paths | 163 | |
 
-Conflicts are `default.xex`, `xbox360a.rpf`, and `xbox360b.rpf`. Disc 1 has
-four additional large files under
+The verified conflicts are `default.xex`, `xbox360a.rpf`, and
+`xbox360b.rpf`. Disc 1 has four additional large files under
 `content/0000000000000000/545408A7/00000002/`, plus `disc1.rsn` and
 `install_music.wma`. Disc 2 has `audio_rel.rpf` and four additional
-`sfx/*.rpf` files. These counts came from an independent read-only listing and
-have not yet been reconciled against this project's hash-producing ISO catalog
-scan.
+`sfx/*.rpf` files. The full catalog pass completed in 475 seconds in an
+optimized Windows build. The supplied images retained their original sizes and
+timestamps after the scan.
 
 ## `default.xex`
 
@@ -117,6 +119,19 @@ tables use the PC encoding:
 | Play / `xbox360a.rpf` | 711,852,032 | 155 | `0x80000A40` | `0x0FFFFFF7` |
 | Play / `xbox360b.rpf` | 1,431,193,600 | 141 | `0x800009A0` | `0x0FFFFFF7` |
 
+The catalog's full-file hashes confirm that each path has two different
+content variants. These hashes identify files only; they do not interpret or
+validate the archive directory tables:
+
+| Path | Disc | Size | SHA-256 |
+|---|---|---:|---|
+| `default.xex` | Install | 26,628,096 | `c6cace59f341edd4579bdac5d2849c5af7b96ddd4aa902ca2a138501d675a3ee` |
+| `default.xex` | Play | 26,628,096 | `f0ca93fbe6b3dfbf50c026e0d77a71e8294b13a5a775af1b6a64f07b0fc10a3d` |
+| `xbox360a.rpf` | Install | 10,014,720 | `dbfcacef7b3faafd638df8c3f2d2b3a6b765f5296ec8303412d3aceec3cbae09` |
+| `xbox360a.rpf` | Play | 711,852,032 | `5c7a633870485a4e79738fa6169e5a7937b39ba4474fb6f51a994c8dc6b8e525` |
+| `xbox360b.rpf` | Install | 17,874,944 | `a073b0dd36389b24a7cbf2eb91edc4ba95896b18a15e4e2c6ac6d9d206aa6904` |
+| `xbox360b.rpf` | Play | 1,431,193,600 | `9d15357ffb79a815020f2bdb66b0faee8ec0873a6499c927569f236bdda41cb1` |
+
 The signature suggests an RPF7-family container, but the high-bit name-length
 values and tag are not interpreted as a validated Xbox 360 directory table.
 The entry counts above are raw header fields, not validated parsed counts.
@@ -156,7 +171,10 @@ provenance. It hashes bounded byte ranges, merges content only after a
 byte-for-byte duplicate check, preserves conflicting variants, and refuses
 conflict resolution unless a caller explicitly selects a source ID. ISO
 resource reads are bounded streams over the original image, not extracted
-files.
+files. A complete optimized scan of both supplied images reproduced all
+previously reported file, shared-path, duplicate, conflict, and unique-path
+counts. The prior inventory is therefore reconciled for these images and this
+scanner version; broader XDVDFS/XGD3 layout coverage is still not established.
 
 The metadata-only STFS reader validates the public package signature, header
 size, and STFS descriptor and exposes selected public fields; it does not parse

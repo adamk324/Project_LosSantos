@@ -11,6 +11,11 @@ paths. Disc 1 also has four large packages beneath
 `content/0000000000000000/545408A7/00000002/`; Disc 2 has `audio_rel.rpf`
 and four additional `sfx/*.rpf` files.
 
+The catalog's optimized full-image scan confirmed exactly 158 Disc 1 file
+entries, 157 Disc 2 entries, 149 identical shared paths, three conflicting
+shared paths, and 163 unique paths. The result matches the earlier independent
+inventory. It took 475 seconds and did not modify either image.
+
 Both `default.xex` files have XEX2 magic and are 26,628,096 bytes. Their
 SHA-256 hashes differ:
 
@@ -45,8 +50,9 @@ zero data-file count. Their 20-byte content IDs are:
 | `545408A700000002` | `96CC1A6939BCD6EF4F0522A1E039EEBC294E3544` |
 | `545408A700000003` | `85C21A6E9328BAB01B957E8FBD1C6A3B64E83FBA` |
 
-The RPF conflict files begin with `RPF7`. The big-endian header interpretation
-and limits of the observations are recorded in [RESEARCH.md](./RESEARCH.md).
+The RPF conflict files begin with `RPF7`. Their full-file SHA-256 hashes,
+sizes, big-endian header observations, and the limits of those observations
+are recorded in [RESEARCH.md](./RESEARCH.md).
 The directory tables, resource entry types, nested archives, and Xbox-specific
 table encoding remain unparsed. No encrypted archive metadata was decrypted.
 
@@ -63,11 +69,10 @@ Synthetic tests cover two ISO sources, identical and conflicting files,
 disc-specific files, cross-source reads, explicit source selection, manifest
 provenance, invalid volume descriptors, and extracted-directory behavior.
 Synthetic STFS header tests also validate recognized package signatures,
-bounded header sizes, descriptor length, and truncated input. These tests do
-not establish game compatibility. Actual-source inventory validation is
-pending: the earlier inventory counts came from an independent read-only
-listing, and the complete hash-producing catalog scan has not been reconciled
-against it.
+bounded header sizes, descriptor length, and truncated input. These tests and
+the completed real-image scan validate catalog indexing and byte-range
+hashing for these two images; they do not establish game compatibility or
+coverage of every XDVDFS/XGD3 layout.
 
 ## Data handling and remaining limits
 

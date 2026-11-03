@@ -23,9 +23,9 @@
 - [x] Record evidence and uncertainty in [GAME_DATA_STATUS.md](./GAME_DATA_STATUS.md)
   and [RESEARCH.md](./RESEARCH.md).
 
-## Next: validate real-source scanner and formats
+## Next: validate formats and game dependencies
 
-- [ ] Run the hash-producing catalog scan over both supplied images and
+- [x] Run the hash-producing catalog scan over both supplied images and
   reconcile its file counts, duplicate hashes, and conflicts with the earlier
   independent inventory.
 - [ ] Validate the XDVDFS scanner on additional synthetic structures and

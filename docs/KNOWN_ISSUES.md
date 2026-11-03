@@ -9,10 +9,9 @@
   surface, submit GPU work, benchmark the GPU, or validate Xenos translation.
 - Native status indicates that JNI and the runtime memory arena initialized.
   It does not establish Xbox kernel or game compatibility.
-- The ISO reader is newly implemented and has synthetic XDVDFS fixtures, but
-  its complete inventory has not been reconciled against the supplied images.
-  Broader XDVDFS/XGD3 layouts and malformed-input cases need additional
-  coverage.
+- The ISO reader's complete inventory now matches the two supplied images'
+  independently recorded counts and conflicts. Broader XDVDFS/XGD3 layouts
+  and malformed-input cases still need additional coverage.
 - Conflicting filenames are preserved and rejected by default. A caller can
   explicitly select a source ID, but no game-specific policy has yet been
   justified for the observed conflicts.
