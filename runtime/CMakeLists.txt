@@ -1,5 +1,6 @@
 add_library(runtime
     src/gamedata/GameDataCatalog.cpp
+    src/gamedata/Xbox360Metadata.cpp
     src/memory/MemoryArena.cpp
 )
 

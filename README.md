@@ -16,8 +16,9 @@ This repository is intentionally structured as a practical foundation rather tha
 
 - `recomp/` — PowerPC decode and ARM64 code generation experiments.
 - `runtime/` — memory, thread, and compatibility abstractions.
-- `runtime/gamedata/` — read-only catalog for the separate Install Disc and
-  Play Disc sources.
+- `runtime/gamedata/` — read-only catalog for separate Install Disc and Play
+  Disc directory/ISO sources, plus metadata-only Xbox content package
+  inspection.
 - `android/app/` — installable Android debug app and native JNI entry points.
 - `android/src/main/cpp/` — JNI lifecycle and Vulkan capability probe.
 - `tests/` — synthetic validation for core infrastructure.
@@ -45,23 +46,28 @@ cmake --build build-android
 
 ## Synthetic validation
 
-Because the Xbox 360 GTA V ISO is not available in this environment, the project validates the following with synthetic fixtures:
+The actual disc images and extracted game files remain outside this repository.
+Synthetic fixtures validate the following infrastructure without putting game
+data in CI:
 
 - PowerPC instruction decoding
 - Control flow and branch handling
 - Register state transitions
 - Memory arena allocation behavior
 - ARM64 instruction emission primitives
-- Two-disc game-data catalog and conflict reporting
+- Two-disc directory/ISO catalog, bounded file access, and conflict reporting
+- Synthetic XDVDFS images and STFS package headers
 - Android ARM64 app, JNI runtime initialization, and Vulkan capability reporting
 
 These tests are intentionally limited to the infrastructure itself and never
 claim to validate game behavior.
 
-The catalog does not assume either disc is sufficient, does not overwrite
-conflicting files, and does not claim to identify the actual launch executable
-or its dependencies before real disc contents are inspected. See
-[`docs/GAME_DATA_STATUS.md`](docs/GAME_DATA_STATUS.md).
+The catalog does not assume either disc is sufficient and never overwrites
+conflicting files. Metadata from both supplied discs has been inspected, but
+the primary launch executable, complete dependency set, and Xbox-specific RPF
+directory formats remain unverified. See
+[`docs/GAME_DATA_STATUS.md`](docs/GAME_DATA_STATUS.md) and
+[`docs/RESEARCH.md`](docs/RESEARCH.md).
 
 ## Android bring-up
 

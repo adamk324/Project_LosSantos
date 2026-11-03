@@ -9,26 +9,43 @@
 
 ## Two-disc game-data catalog
 
-The Xbox 360 Install Disc and Play Disc are represented as separate source
-directories. The catalog scans each independently, records each file's source
-disc and relative path, and builds a single virtual namespace without changing
-the source data. Symlinks are not followed.
+The Xbox 360 Install Disc and Play Disc are separate inputs, each of which can
+be an extracted directory or a read-only XDVDFS/XISO image. A catalog can
+register multiple sources for either disc, each with a stable caller-supplied
+or generated source ID. It scans every source independently and builds one
+case-insensitive virtual namespace without changing or combining source data.
+Directory symlinks are not followed.
 
-Virtual paths are normalized and case-insensitive. Byte-identical duplicates
-are represented as one content variant with both origins. Different contents
-at the same path remain distinct variants and are reported as a conflict;
-lookup and file opening never pick a conflicting version implicitly.
+Each manifest variant records its size, SHA-256, executable-candidate hint,
+and every origin (disc, source ID, source-relative path, and byte offset).
+Identical files are merged into one variant only after matching size/hash and
+a byte-for-byte comparison. Different contents at the same virtual path remain
+separate variants and are always reported as a conflict.
 
-The generated JSON manifest includes paths, file sizes, SHA-256 digests, source
-attribution, conflict status, and executable-candidate hints. The catalog
-recognizes `.xex` extensions and `XEX2` magic as candidates anywhere in either
-source, but does not choose the actual launch executable. Dependency validation
-is available for an explicit list; format-aware executable/import parsing must
-be added after inspecting the real files.
+Resolution rejects conflicts by default. Callers must explicitly request
+`SelectSource` with the source ID to open one variant. Directory resources
+resolve to their original file path; ISO resources resolve to a container path
+and bounded byte range and are opened as a read-only stream. The catalog does
+not extract or rewrite ISO contents. Manifest schema version 2 records sources,
+formats, provenance, byte offsets, and content variants.
 
-The Android implementation must mount lawfully supplied extracted data
-through this virtual resource system and must not require physical discs at
-runtime. Data import and persistence UX remain future work.
+XEX2 magic and `.xex` filenames are only executable-candidate hints. The
+catalog does not select a launch target or establish dependencies. Required
+resource validation checks a caller-provided list and marks both missing and
+conflicting paths as issues.
+
+Synthetic tests cover directory and ISO source pairs, duplicate and conflicting
+files, explicit source selection, missing resources, invalid ISO metadata,
+manifest provenance, bounded reads, and malformed STFS package headers. A
+metadata-only STFS reader exposes public header fields; it does not parse
+package file tables or protected payloads. These tests do not prove full
+XDVDFS compatibility or GTA V execution. See
+[GAME_DATA_STATUS.md](./GAME_DATA_STATUS.md) and [RESEARCH.md](./RESEARCH.md)
+for observed disc metadata and parser limits.
+
+The Android implementation must mount lawfully supplied data through this
+virtual resource system and must not require physical discs at runtime. Data
+import and persistence UX remain future work.
 
 ## Other foundation components
 

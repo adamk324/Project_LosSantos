@@ -20,3 +20,8 @@
   delivery.
 - Documented APK installation and the limits of automated and hardware
   validation.
+- Added read-only XDVDFS/XISO sources to the game-data catalog, including
+  bounded access, source provenance, content hashing, and explicit conflict
+  selection.
+- Added synthetic XDVDFS and STFS-header validation and documented the
+  evidence-based two-disc forensic findings and unresolved format questions.

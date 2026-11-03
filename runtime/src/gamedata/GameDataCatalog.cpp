@@ -3,10 +3,16 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <functional>
 #include <iomanip>
+#include <limits>
+#include <set>
 #include <sstream>
 #include <stdexcept>
+#include <streambuf>
 #include <system_error>
+#include <tuple>
+#include <utility>
 
 namespace project_los_santos::runtime::gamedata {
 namespace fs = std::filesystem;
@@ -131,50 +137,366 @@ private:
     std::size_t totalBytes_ = 0u;
 };
 
-std::string hashFile(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("Unable to read game-data file: " + path.string());
+class FileRegionBuffer final : public std::streambuf {
+public:
+    FileRegionBuffer(const fs::path& path, uint64_t offset, uint64_t size)
+        : file_(path, std::ios::binary), offset_(offset), size_(size) {
+        setg(buffer_.data(), buffer_.data(), buffer_.data());
     }
 
+    [[nodiscard]] bool isOpen() const noexcept { return file_.is_open(); }
+
+protected:
+    int_type underflow() override {
+        if (gptr() != nullptr && gptr() < egptr()) {
+            return traits_type::to_int_type(*gptr());
+        }
+        if (nextReadOffset_ >= size_) {
+            return traits_type::eof();
+        }
+
+        const uint64_t remaining = size_ - nextReadOffset_;
+        const auto readSize = static_cast<std::streamsize>(
+            std::min<uint64_t>(remaining, static_cast<uint64_t>(buffer_.size())));
+        file_.clear();
+        file_.seekg(static_cast<std::streamoff>(offset_ + nextReadOffset_));
+        if (!file_) {
+            return traits_type::eof();
+        }
+        file_.read(buffer_.data(), readSize);
+        const std::streamsize bytesRead = file_.gcount();
+        if (bytesRead <= 0) {
+            return traits_type::eof();
+        }
+        nextReadOffset_ += static_cast<uint64_t>(bytesRead);
+        setg(buffer_.data(), buffer_.data(), buffer_.data() + bytesRead);
+        return traits_type::to_int_type(*gptr());
+    }
+
+    pos_type seekoff(off_type offset, std::ios_base::seekdir direction,
+                     std::ios_base::openmode mode) override {
+        if ((mode & std::ios_base::in) == 0) {
+            return pos_type(off_type(-1));
+        }
+        const uint64_t current = nextReadOffset_ -
+                                 static_cast<uint64_t>(egptr() - gptr());
+        int64_t base = 0;
+        if (direction == std::ios_base::cur) {
+            if (current > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                return pos_type(off_type(-1));
+            }
+            base = static_cast<int64_t>(current);
+        } else if (direction == std::ios_base::end) {
+            if (size_ > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+                return pos_type(off_type(-1));
+            }
+            base = static_cast<int64_t>(size_);
+        } else if (direction != std::ios_base::beg) {
+            return pos_type(off_type(-1));
+        }
+
+        if ((offset < 0 && base < -static_cast<int64_t>(offset)) ||
+            (offset > 0 && base > std::numeric_limits<int64_t>::max() - offset)) {
+            return pos_type(off_type(-1));
+        }
+        const int64_t target = base + offset;
+        if (target < 0 || static_cast<uint64_t>(target) > size_) {
+            return pos_type(off_type(-1));
+        }
+
+        nextReadOffset_ = static_cast<uint64_t>(target);
+        setg(buffer_.data(), buffer_.data(), buffer_.data());
+        return pos_type(static_cast<off_type>(target));
+    }
+
+    pos_type seekpos(pos_type position, std::ios_base::openmode mode) override {
+        return seekoff(static_cast<off_type>(position), std::ios_base::beg, mode);
+    }
+
+private:
+    std::ifstream file_;
+    uint64_t offset_ = 0;
+    uint64_t size_ = 0;
+    uint64_t nextReadOffset_ = 0;
+    std::array<char, 64u * 1024u> buffer_{};
+};
+
+class FileRegionStream final : public std::istream {
+public:
+    FileRegionStream(const fs::path& path, uint64_t offset, uint64_t size)
+        : std::istream(nullptr), buffer_(path, offset, size) {
+        rdbuf(&buffer_);
+        if (!buffer_.isOpen()) {
+            setstate(std::ios_base::failbit);
+        }
+    }
+
+private:
+    FileRegionBuffer buffer_;
+};
+
+std::unique_ptr<std::istream> openRegion(const fs::path& path, uint64_t offset, uint64_t size) {
+    auto stream = std::make_unique<FileRegionStream>(path, offset, size);
+    if (!*stream) {
+        throw std::runtime_error("Unable to read game-data source: " + path.string());
+    }
+    return stream;
+}
+
+std::string hashRegion(const fs::path& path, uint64_t offset, uint64_t size) {
+    std::unique_ptr<std::istream> file = openRegion(path, offset, size);
     Sha256 hash;
     std::array<uint8_t, 64u * 1024u> buffer{};
-    while (file) {
-        file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
-        const std::streamsize bytesRead = file.gcount();
+    while (*file) {
+        file->read(reinterpret_cast<char*>(buffer.data()),
+                   static_cast<std::streamsize>(buffer.size()));
+        const std::streamsize bytesRead = file->gcount();
         if (bytesRead > 0) {
             hash.update(buffer.data(), static_cast<std::size_t>(bytesRead));
         }
     }
-    if (!file.eof()) {
-        throw std::runtime_error("Failed while reading game-data file: " + path.string());
+    if (!file->eof()) {
+        throw std::runtime_error("Failed while reading game-data source: " + path.string());
     }
     return hash.finish();
 }
 
-bool sameContents(const fs::path& leftPath, const fs::path& rightPath) {
-    std::ifstream left(leftPath, std::ios::binary);
-    std::ifstream right(rightPath, std::ios::binary);
-    if (!left || !right) {
-        throw std::runtime_error("Unable to compare game-data files.");
-    }
-
+bool sameContents(const fs::path& leftPath, uint64_t leftOffset,
+                  const fs::path& rightPath, uint64_t rightOffset, uint64_t size) {
+    std::unique_ptr<std::istream> left = openRegion(leftPath, leftOffset, size);
+    std::unique_ptr<std::istream> right = openRegion(rightPath, rightOffset, size);
     std::array<char, 64u * 1024u> leftBuffer{};
     std::array<char, 64u * 1024u> rightBuffer{};
-    while (left && right) {
-        left.read(leftBuffer.data(), static_cast<std::streamsize>(leftBuffer.size()));
-        right.read(rightBuffer.data(), static_cast<std::streamsize>(rightBuffer.size()));
-        const std::streamsize leftCount = left.gcount();
-        const std::streamsize rightCount = right.gcount();
+    uint64_t remaining = size;
+    while (remaining > 0u) {
+        const auto chunk = static_cast<std::streamsize>(
+            std::min<uint64_t>(remaining, static_cast<uint64_t>(leftBuffer.size())));
+        left->read(leftBuffer.data(), chunk);
+        right->read(rightBuffer.data(), chunk);
+        const std::streamsize leftCount = left->gcount();
+        const std::streamsize rightCount = right->gcount();
         if (leftCount != rightCount ||
             !std::equal(leftBuffer.begin(), leftBuffer.begin() + leftCount, rightBuffer.begin())) {
             return false;
         }
+        if (leftCount != chunk) {
+            throw std::runtime_error("Unexpected end of game-data source while comparing files.");
+        }
+        remaining -= static_cast<uint64_t>(leftCount);
     }
-    if ((!left.eof() && left.fail()) || (!right.eof() && right.fail())) {
-        throw std::runtime_error("Failed while comparing game-data files.");
+    return true;
+}
+
+struct IndexedImageFile {
+    std::string path;
+    uint64_t offset = 0;
+    uint64_t size = 0;
+};
+
+struct XdvdfsVolume {
+    uint64_t imageOffset = 0;
+    uint32_t rootSector = 0;
+    uint32_t rootSize = 0;
+};
+
+constexpr uint64_t kXdvdfsSectorSize = 2048u;
+constexpr std::array<uint8_t, 20> kXdvdfsMagic{
+    'M', 'I', 'C', 'R', 'O', 'S', 'O', 'F', 'T', '*',
+    'X', 'B', 'O', 'X', '*', 'M', 'E', 'D', 'I', 'A',
+};
+
+uint32_t readLittleEndian32(const uint8_t* bytes) {
+    return static_cast<uint32_t>(bytes[0]) |
+           (static_cast<uint32_t>(bytes[1]) << 8u) |
+           (static_cast<uint32_t>(bytes[2]) << 16u) |
+           (static_cast<uint32_t>(bytes[3]) << 24u);
+}
+
+uint16_t readLittleEndian16(const uint8_t* bytes) {
+    return static_cast<uint16_t>(bytes[0]) |
+           static_cast<uint16_t>(static_cast<uint16_t>(bytes[1]) << 8u);
+}
+
+void readAt(std::ifstream& file, uint64_t imageSize, uint64_t offset,
+            uint8_t* destination, std::size_t size, const fs::path& path) {
+    if (offset > imageSize || size > imageSize - offset ||
+        offset > static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max())) {
+        throw std::runtime_error("XDVDFS metadata points outside the image: " + path.string());
     }
-    return left.eof() && right.eof();
+    file.clear();
+    file.seekg(static_cast<std::streamoff>(offset));
+    if (!file || !file.read(reinterpret_cast<char*>(destination),
+                            static_cast<std::streamsize>(size))) {
+        throw std::runtime_error("Unable to read XDVDFS metadata: " + path.string());
+    }
+}
+
+std::string decodeWindows1252(const uint8_t* bytes, std::size_t size) {
+    constexpr std::array<uint16_t, 32> kControlCodepoints{
+        0x20ACu, 0x0081u, 0x201Au, 0x0192u, 0x201Eu, 0x2026u, 0x2020u, 0x2021u,
+        0x02C6u, 0x2030u, 0x0160u, 0x2039u, 0x0152u, 0x008Du, 0x017Du, 0x008Fu,
+        0x0090u, 0x2018u, 0x2019u, 0x201Cu, 0x201Du, 0x2022u, 0x2013u, 0x2014u,
+        0x02DCu, 0x2122u, 0x0161u, 0x203Au, 0x0153u, 0x009Du, 0x017Eu, 0x0178u,
+    };
+
+    std::string result;
+    for (std::size_t i = 0; i < size; ++i) {
+        const uint8_t byte = bytes[i];
+        uint32_t codepoint = byte;
+        if (byte >= 0x80u && byte <= 0x9Fu) {
+            codepoint = kControlCodepoints[byte - 0x80u];
+        }
+        if (codepoint < 0x80u) {
+            result.push_back(static_cast<char>(codepoint));
+        } else if (codepoint < 0x800u) {
+            result.push_back(static_cast<char>(0xC0u | (codepoint >> 6u)));
+            result.push_back(static_cast<char>(0x80u | (codepoint & 0x3Fu)));
+        } else {
+            result.push_back(static_cast<char>(0xE0u | (codepoint >> 12u)));
+            result.push_back(static_cast<char>(0x80u | ((codepoint >> 6u) & 0x3Fu)));
+            result.push_back(static_cast<char>(0x80u | (codepoint & 0x3Fu)));
+        }
+    }
+    return result;
+}
+
+XdvdfsVolume readXdvdfsVolume(std::ifstream& image, uint64_t imageSize,
+                              const fs::path& path) {
+    constexpr std::array<uint64_t, 4> kImageOffsets{
+        0u, 0x02080000u, 0x0FD90000u, 0x18300000u,
+    };
+    constexpr uint64_t kDescriptorOffset = 0x10000u;
+    constexpr uint64_t kDescriptorSize = 0x800u;
+
+    for (const uint64_t imageOffset : kImageOffsets) {
+        if (imageOffset > imageSize ||
+            kDescriptorOffset + kDescriptorSize > imageSize - imageOffset) {
+            continue;
+        }
+        std::array<uint8_t, kDescriptorSize> descriptor{};
+        readAt(image, imageSize, imageOffset + kDescriptorOffset, descriptor.data(),
+               descriptor.size(), path);
+        if (!std::equal(kXdvdfsMagic.begin(), kXdvdfsMagic.end(), descriptor.begin()) ||
+            !std::equal(kXdvdfsMagic.begin(), kXdvdfsMagic.end(),
+                        descriptor.begin() + 0x7EC)) {
+            continue;
+        }
+
+        XdvdfsVolume volume;
+        volume.imageOffset = imageOffset;
+        volume.rootSector = readLittleEndian32(descriptor.data() + 0x14);
+        volume.rootSize = readLittleEndian32(descriptor.data() + 0x18);
+        const uint64_t rootOffset =
+            imageOffset + static_cast<uint64_t>(volume.rootSector) * kXdvdfsSectorSize;
+        if (volume.rootSize < 14u || rootOffset > imageSize ||
+            volume.rootSize > imageSize - rootOffset) {
+            throw std::runtime_error("XDVDFS root directory region is invalid: " + path.string());
+        }
+        return volume;
+    }
+    throw std::runtime_error("No supported XDVDFS volume descriptor found: " + path.string());
+}
+
+std::vector<IndexedImageFile> scanXdvdfsImage(const fs::path& path, uint64_t imageSize) {
+    std::ifstream image(path, std::ios::binary);
+    if (!image) {
+        throw std::runtime_error("Unable to open Xbox 360 disc image: " + path.string());
+    }
+
+    const XdvdfsVolume volume = readXdvdfsVolume(image, imageSize, path);
+    std::vector<IndexedImageFile> files;
+    std::set<std::tuple<uint64_t, uint64_t, std::string>> activeDirectories;
+    constexpr std::size_t kMaximumFiles = 1000000u;
+    constexpr std::size_t kMaximumDepth = 128u;
+
+    std::function<void(uint64_t, uint32_t, const std::string&, std::size_t)> scanDirectory;
+    scanDirectory = [&](uint64_t sector, uint32_t tableSize, const std::string& parent,
+                        std::size_t depth) {
+        if (depth > kMaximumDepth) {
+            throw std::runtime_error("XDVDFS directory nesting exceeds the safety limit.");
+        }
+        const uint64_t tableOffset =
+            volume.imageOffset + sector * kXdvdfsSectorSize;
+        if (tableOffset > imageSize || tableSize > imageSize - tableOffset) {
+            throw std::runtime_error("XDVDFS directory table lies outside the image.");
+        }
+        const auto key = std::make_tuple(sector, tableSize, parent);
+        if (!activeDirectories.insert(key).second) {
+            throw std::runtime_error("XDVDFS directory cycle detected.");
+        }
+
+        std::set<uint64_t> visitedNodes;
+        std::vector<std::pair<uint64_t, bool>> pendingNodes{{0u, true}};
+        while (!pendingNodes.empty()) {
+            const auto [nodeOffset, isRoot] = pendingNodes.back();
+            pendingNodes.pop_back();
+            if (!isRoot &&
+                (nodeOffset == 0u || nodeOffset == 0xFFu || nodeOffset == 0xFFFFu)) {
+                continue;
+            }
+            if (!visitedNodes.insert(nodeOffset).second) {
+                throw std::runtime_error("XDVDFS directory tree contains a cycle.");
+            }
+            if (visitedNodes.size() > kMaximumFiles) {
+                throw std::runtime_error("XDVDFS directory node count exceeds the safety limit.");
+            }
+            const uint64_t entryOffset = nodeOffset * 4u;
+            if (entryOffset > tableSize || 14u > tableSize - entryOffset) {
+                throw std::runtime_error("XDVDFS directory node lies outside its table.");
+            }
+            std::array<uint8_t, 14> entry{};
+            readAt(image, imageSize, tableOffset + entryOffset, entry.data(), entry.size(), path);
+            const bool emptyZero = std::all_of(entry.begin(), entry.end(),
+                                                [](uint8_t value) { return value == 0u; });
+            const bool emptyOnes = std::all_of(entry.begin(), entry.end(),
+                                                [](uint8_t value) { return value == 0xFFu; });
+            if (emptyZero || emptyOnes) {
+                continue;
+            }
+
+            const uint16_t left = readLittleEndian16(entry.data());
+            const uint16_t right = readLittleEndian16(entry.data() + 2u);
+            const uint32_t fileSector = readLittleEndian32(entry.data() + 4u);
+            const uint32_t fileSize = readLittleEndian32(entry.data() + 8u);
+            const uint8_t attributes = entry[12];
+            const uint8_t nameLength = entry[13];
+            if (nameLength == 0u || nameLength > tableSize - entryOffset - 14u) {
+                throw std::runtime_error("XDVDFS directory entry has an invalid filename.");
+            }
+
+            std::vector<uint8_t> nameBytes(nameLength);
+            readAt(image, imageSize, tableOffset + entryOffset + 14u, nameBytes.data(),
+                   nameBytes.size(), path);
+            const std::string name = decodeWindows1252(nameBytes.data(), nameBytes.size());
+            if (name.empty() || name == "." || name == ".." ||
+                name.find_first_of("/\\") != std::string::npos) {
+                throw std::runtime_error("XDVDFS directory entry contains an unsafe filename.");
+            }
+            const std::string virtualPath = parent.empty() ? name : parent + "/" + name;
+            const uint64_t dataOffset =
+                volume.imageOffset + static_cast<uint64_t>(fileSector) * kXdvdfsSectorSize;
+            if (dataOffset > imageSize || fileSize > imageSize - dataOffset) {
+                throw std::runtime_error("XDVDFS file region lies outside the image.");
+            }
+
+            if ((attributes & 0x10u) != 0u) {
+                if (fileSize != 0u) {
+                    scanDirectory(fileSector, fileSize, virtualPath, depth + 1u);
+                }
+            } else {
+                files.push_back(IndexedImageFile{virtualPath, dataOffset, fileSize});
+                if (files.size() > kMaximumFiles) {
+                    throw std::runtime_error("XDVDFS file count exceeds the safety limit.");
+                }
+            }
+            pendingNodes.emplace_back(right, false);
+            pendingNodes.emplace_back(left, false);
+        }
+        activeDirectories.erase(key);
+    };
+
+    scanDirectory(volume.rootSector, volume.rootSize, {}, 0u);
+    return files;
 }
 
 std::string normalizeVirtualPath(std::string_view path) {
@@ -260,20 +582,6 @@ std::string executableFormat(const fs::path& path) {
     return {};
 }
 
-bool hasXex2Magic(const fs::path& path) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        throw std::runtime_error("Unable to inspect executable candidate: " + path.string());
-    }
-    std::array<char, 4> magic{};
-    file.read(magic.data(), static_cast<std::streamsize>(magic.size()));
-    if (file.bad()) {
-        throw std::runtime_error("Failed while inspecting executable candidate: " + path.string());
-    }
-    return file.gcount() == static_cast<std::streamsize>(magic.size()) &&
-           magic == std::array<char, 4>{'X', 'E', 'X', '2'};
-}
-
 std::string lookupStatusName(LookupStatus status) {
     switch (status) {
         case LookupStatus::Found:
@@ -298,115 +606,200 @@ std::string toString(DiscKind disc) {
     throw std::logic_error("Unknown game disc kind.");
 }
 
+std::string toString(SourceFormat format) {
+    switch (format) {
+        case SourceFormat::Auto:
+            return "auto";
+        case SourceFormat::Directory:
+            return "directory";
+        case SourceFormat::Xbox360Iso:
+            return "xbox360-xdvdfs-iso";
+    }
+    throw std::logic_error("Unknown game-data source format.");
+}
+
 GameDataCatalog GameDataCatalog::scan(const std::vector<DiscSource>& sources) {
     GameDataCatalog catalog;
+    std::map<DiscKind, std::size_t> sourceOrdinals;
     for (const DiscSource& source : sources) {
-        if (catalog.sourceRoots_.contains(source.disc)) {
-            throw std::invalid_argument("Only one source root may be configured for each game disc.");
-        }
         if (source.root.empty()) {
             throw std::invalid_argument("Game-data source roots must not be empty.");
         }
 
         std::error_code error;
-        const fs::path root = fs::absolute(source.root, error).lexically_normal();
+        const fs::path sourcePath = fs::absolute(source.root, error).lexically_normal();
         if (error) {
             throw fs::filesystem_error("Unable to resolve game-data source path", source.root, error);
         }
-        if (!fs::is_directory(root, error) || error) {
-            throw fs::filesystem_error("Game-data source is not an accessible directory", root, error);
+
+        SourceFormat format = source.format;
+        if (format == SourceFormat::Auto) {
+            if (fs::is_directory(sourcePath, error) && !error) {
+                format = SourceFormat::Directory;
+            } else {
+                error.clear();
+                if (fs::is_regular_file(sourcePath, error) && !error) {
+                    std::string extension = sourcePath.extension().string();
+                    std::transform(extension.begin(), extension.end(), extension.begin(),
+                                   [](unsigned char ch) {
+                        return static_cast<char>(std::tolower(ch));
+                    });
+                    if (extension == ".iso") {
+                        format = SourceFormat::Xbox360Iso;
+                    }
+                }
+            }
         }
-        for (const auto& [existingDisc, existingRoot] : catalog.sourceRoots_) {
-            (void)existingDisc;
-            const bool sameRoot = fs::equivalent(existingRoot, root, error);
+
+        if (format == SourceFormat::Directory) {
+            if (!fs::is_directory(sourcePath, error) || error) {
+                throw fs::filesystem_error("Game-data source is not an accessible directory",
+                                           sourcePath, error);
+            }
+        } else if (format == SourceFormat::Xbox360Iso) {
+            if (!fs::is_regular_file(sourcePath, error) || error) {
+                throw fs::filesystem_error("Xbox 360 ISO source is not an accessible file",
+                                           sourcePath, error);
+            }
+        } else {
+            throw std::invalid_argument("Unable to infer game-data source format: " +
+                                        sourcePath.string());
+        }
+
+        std::string sourceId = source.sourceId;
+        if (sourceId.empty()) {
+            sourceId = toString(source.disc) + "-" +
+                       std::to_string(sourceOrdinals[source.disc]);
+        }
+        ++sourceOrdinals[source.disc];
+        if (catalog.sources_.contains(sourceId)) {
+            throw std::invalid_argument("Game-data source IDs must be unique: " + sourceId);
+        }
+        for (const auto& [existingId, existingSource] : catalog.sources_) {
+            (void)existingId;
+            const bool sameRoot = fs::equivalent(existingSource.path, sourcePath, error);
             if (error) {
                 throw fs::filesystem_error("Unable to compare game-data source roots",
-                                           existingRoot, root, error);
+                                           existingSource.path, sourcePath, error);
             }
             if (sameRoot) {
-                throw std::invalid_argument("Install Disc and Play Disc must use separate source roots.");
+                throw std::invalid_argument("A game-data source cannot be registered more than once.");
             }
         }
-        catalog.sourceRoots_.emplace(source.disc, root);
 
-        fs::recursive_directory_iterator iterator(root, fs::directory_options::none, error);
-        const fs::recursive_directory_iterator end;
-        if (error) {
-            throw fs::filesystem_error("Unable to inspect game-data source", root, error);
-        }
-        while (iterator != end) {
-            const fs::directory_entry item = *iterator;
-            const fs::path relativePath = item.path().lexically_relative(root);
-            const std::string virtualPath = relativePath.generic_string();
-            const std::string key = normalizeVirtualPath(virtualPath);
-
-            const bool isSymlink = item.is_symlink(error);
+        SourceInfo sourceInfo{source.disc, sourcePath, format};
+        std::vector<IndexedImageFile> imageFiles;
+        if (format == SourceFormat::Xbox360Iso) {
+            const uint64_t imageSize = fs::file_size(sourcePath, error);
             if (error) {
-                throw fs::filesystem_error("Unable to inspect game-data entry", item.path(), error);
+                throw fs::filesystem_error("Unable to determine Xbox 360 ISO size", sourcePath, error);
             }
-            if (isSymlink) {
-                iterator.disable_recursion_pending();
+            imageFiles = scanXdvdfsImage(sourcePath, imageSize);
+        }
+        catalog.sources_.emplace(sourceId, sourceInfo);
+
+        const auto addFile = [&](const std::string& virtualPath, const fs::path& filePath,
+                                 uint64_t offset, uint64_t size) {
+            const std::string key = normalizeVirtualPath(virtualPath);
+            const std::string digest = hashRegion(filePath, offset, size);
+            std::string formatName = fs::path(virtualPath).extension().empty()
+                                         ? std::string{}
+                                         : executableFormat(fs::path(virtualPath));
+            const auto prefix = openRegion(filePath, offset,
+                                           std::min<uint64_t>(size, 4u));
+            std::array<char, 4> magic{};
+            prefix->read(magic.data(), static_cast<std::streamsize>(magic.size()));
+            if (prefix->gcount() == static_cast<std::streamsize>(magic.size()) &&
+                magic == std::array<char, 4>{'X', 'E', 'X', '2'}) {
+                formatName = "xex2";
+            }
+            const bool executable = !formatName.empty();
+            ++catalog.sourceFileCounts_[source.disc];
+
+            std::size_t entryIndex;
+            const auto found = catalog.entryIndices_.find(key);
+            if (found == catalog.entryIndices_.end()) {
+                entryIndex = catalog.entries_.size();
+                catalog.entryIndices_.emplace(key, entryIndex);
+                catalog.entries_.push_back(ManifestEntry{virtualPath, {}});
             } else {
-                const bool regularFile = item.is_regular_file(error);
+                entryIndex = found->second;
+            }
+
+            ManifestEntry& entry = catalog.entries_[entryIndex];
+            auto variant = std::find_if(entry.variants.begin(), entry.variants.end(),
+                                        [&](const ContentVariant& candidate) {
+                if (candidate.size != size || candidate.sha256 != digest) {
+                    return false;
+                }
+                const FileOrigin& origin = candidate.origins.front();
+                const SourceInfo& existingSource = catalog.sources_.at(origin.sourceId);
+                const fs::path existingPath = existingSource.format == SourceFormat::Directory
+                                                  ? existingSource.path /
+                                                        fs::path(origin.sourceRelativePath)
+                                                  : existingSource.path;
+                return sameContents(existingPath, origin.byteOffset, filePath, offset, size);
+            });
+            FileOrigin origin{source.disc, virtualPath, sourceId, offset};
+            if (variant == entry.variants.end()) {
+                ContentVariant content;
+                content.size = size;
+                content.sha256 = digest;
+                content.executableCandidate = executable;
+                content.executableFormat = formatName;
+                content.origins.push_back(std::move(origin));
+                entry.variants.push_back(std::move(content));
+            } else {
+                variant->origins.push_back(std::move(origin));
+                if (formatName == "xex2" ||
+                    (variant->executableFormat.empty() && !formatName.empty())) {
+                    variant->executableFormat = formatName;
+                }
+                variant->executableCandidate = variant->executableCandidate || executable;
+            }
+        };
+
+        if (format == SourceFormat::Directory) {
+            fs::recursive_directory_iterator iterator(sourcePath, fs::directory_options::none, error);
+            const fs::recursive_directory_iterator end;
+            if (error) {
+                throw fs::filesystem_error("Unable to inspect game-data source", sourcePath, error);
+            }
+            while (iterator != end) {
+                const fs::directory_entry item = *iterator;
+                const fs::path relativePath = item.path().lexically_relative(sourcePath);
+                const std::string virtualPath = relativePath.generic_string();
+
+                const bool isSymlink = item.is_symlink(error);
                 if (error) {
                     throw fs::filesystem_error("Unable to inspect game-data entry", item.path(), error);
                 }
-                if (regularFile) {
-                    const uint64_t size = item.file_size(error);
+                if (isSymlink) {
+                    iterator.disable_recursion_pending();
+                } else {
+                    const bool regularFile = item.is_regular_file(error);
                     if (error) {
-                        throw fs::filesystem_error("Unable to get game-data file size", item.path(), error);
+                        throw fs::filesystem_error("Unable to inspect game-data entry", item.path(), error);
                     }
-                    std::string digest = hashFile(item.path());
-                    std::string format = executableFormat(item.path());
-                    if (hasXex2Magic(item.path())) {
-                        format = "xex2";
-                    }
-                    const bool executable = !format.empty();
-                    ++catalog.sourceFileCounts_[source.disc];
-
-                    std::size_t entryIndex;
-                    const auto found = catalog.entryIndices_.find(key);
-                    if (found == catalog.entryIndices_.end()) {
-                        entryIndex = catalog.entries_.size();
-                        catalog.entryIndices_.emplace(key, entryIndex);
-                        catalog.entries_.push_back(ManifestEntry{virtualPath, {}});
-                    } else {
-                        entryIndex = found->second;
-                    }
-
-                    ManifestEntry& entry = catalog.entries_[entryIndex];
-                    auto variant = std::find_if(entry.variants.begin(), entry.variants.end(),
-                                                [&](const ContentVariant& candidate) {
-                        if (candidate.size != size || candidate.sha256 != digest) {
-                            return false;
+                    if (regularFile) {
+                        const uint64_t size = item.file_size(error);
+                        if (error) {
+                            throw fs::filesystem_error("Unable to get game-data file size",
+                                                       item.path(), error);
                         }
-                        const FileOrigin& origin = candidate.origins.front();
-                        const fs::path existing = catalog.sourceRoots_.at(origin.disc) /
-                                                  fs::path(origin.sourceRelativePath);
-                        return sameContents(existing, item.path());
-                    });
-                    if (variant == entry.variants.end()) {
-                        ContentVariant content;
-                        content.size = size;
-                        content.sha256 = std::move(digest);
-                        content.executableCandidate = executable;
-                        content.executableFormat = std::move(format);
-                        content.origins.push_back(FileOrigin{source.disc, virtualPath});
-                        entry.variants.push_back(std::move(content));
-                    } else {
-                        variant->origins.push_back(FileOrigin{source.disc, virtualPath});
-                        if (format == "xex2" ||
-                            (variant->executableFormat.empty() && !format.empty())) {
-                            variant->executableFormat = std::move(format);
-                        }
-                        variant->executableCandidate = variant->executableCandidate || executable;
+                        addFile(virtualPath, item.path(), 0u, size);
                     }
                 }
-            }
 
-            iterator.increment(error);
-            if (error) {
-                throw fs::filesystem_error("Failed while scanning game-data source", root, error);
+                iterator.increment(error);
+                if (error) {
+                    throw fs::filesystem_error("Failed while scanning game-data source",
+                                               sourcePath, error);
+                }
+            }
+        } else {
+            for (const IndexedImageFile& file : imageFiles) {
+                addFile(file.path, sourcePath, file.offset, file.size);
             }
         }
     }
@@ -440,6 +833,9 @@ GameDataCatalog GameDataCatalog::scan(const std::vector<DiscSource>& sources) {
                 if (left.disc != right.disc) {
                     return left.disc < right.disc;
                 }
+                if (left.sourceId != right.sourceId) {
+                    return left.sourceId < right.sourceId;
+                }
                 return left.sourceRelativePath < right.sourceRelativePath;
             });
         }
@@ -457,17 +853,64 @@ LookupResult GameDataCatalog::lookup(std::string_view virtualPath) const {
     return LookupResult{entry.variants.size() > 1u ? LookupStatus::Conflict : LookupStatus::Found, &entry};
 }
 
-fs::path GameDataCatalog::resolvePath(std::string_view virtualPath) const {
+FileLocation GameDataCatalog::resolveFile(std::string_view virtualPath, ResolutionPolicy policy,
+                                          std::string_view sourceId) const {
+    if (policy == ResolutionPolicy::SelectSource && sourceId.empty()) {
+        throw std::invalid_argument("SelectSource resolution requires a source ID.");
+    }
+    if (policy == ResolutionPolicy::RejectConflicts && !sourceId.empty()) {
+        throw std::invalid_argument("A source ID is valid only with SelectSource resolution.");
+    }
+
     const LookupResult result = lookup(virtualPath);
     if (result.status == LookupStatus::NotFound) {
         return {};
     }
-    if (result.status == LookupStatus::Conflict) {
-        throw std::runtime_error("Ambiguous game-data path has different contents: " + std::string(virtualPath));
+    const ContentVariant* selectedVariant = nullptr;
+    const FileOrigin* selectedOrigin = nullptr;
+    if (policy == ResolutionPolicy::RejectConflicts) {
+        if (result.status == LookupStatus::Conflict) {
+            throw std::runtime_error("Ambiguous game-data path has different contents: " +
+                                     std::string(virtualPath));
+        }
+        selectedVariant = &result.entry->variants.front();
+        selectedOrigin = &selectedVariant->origins.front();
+    } else {
+        for (const ContentVariant& variant : result.entry->variants) {
+            const auto origin = std::find_if(
+                variant.origins.begin(), variant.origins.end(),
+                [&](const FileOrigin& candidate) { return candidate.sourceId == sourceId; });
+            if (origin != variant.origins.end()) {
+                selectedVariant = &variant;
+                selectedOrigin = &*origin;
+                break;
+            }
+        }
+        if (selectedOrigin == nullptr) {
+            throw std::runtime_error("Requested source does not contain game-data path: " +
+                                     std::string(virtualPath));
+        }
     }
-    const ContentVariant& variant = result.entry->variants.front();
-    const FileOrigin& origin = variant.origins.front();
-    return sourceRoots_.at(origin.disc) / fs::path(origin.sourceRelativePath);
+
+    const SourceInfo& source = sources_.at(selectedOrigin->sourceId);
+    const fs::path containerPath =
+        source.format == SourceFormat::Directory
+            ? source.path / fs::path(selectedOrigin->sourceRelativePath)
+            : source.path;
+    return FileLocation{containerPath, selectedOrigin->sourceId, selectedOrigin->byteOffset,
+                        selectedVariant->size, source.format};
+}
+
+fs::path GameDataCatalog::resolvePath(std::string_view virtualPath, ResolutionPolicy policy,
+                                      std::string_view sourceId) const {
+    const FileLocation location = resolveFile(virtualPath, policy, sourceId);
+    if (location.containerPath.empty()) {
+        return {};
+    }
+    if (location.format != SourceFormat::Directory) {
+        throw std::runtime_error("The resource is inside an ISO image; use openResource instead.");
+    }
+    return location.containerPath;
 }
 
 std::ifstream GameDataCatalog::openFile(std::string_view virtualPath) const {
@@ -482,12 +925,25 @@ std::ifstream GameDataCatalog::openFile(std::string_view virtualPath) const {
     return file;
 }
 
+std::unique_ptr<std::istream> GameDataCatalog::openResource(std::string_view virtualPath,
+                                                            ResolutionPolicy policy,
+                                                            std::string_view sourceId) const {
+    const FileLocation location = resolveFile(virtualPath, policy, sourceId);
+    if (location.containerPath.empty()) {
+        throw std::runtime_error("Game-data resource was not found: " + std::string(virtualPath));
+    }
+    return openRegion(location.containerPath, location.byteOffset, location.size);
+}
+
 std::vector<DiscKind> GameDataCatalog::missingDiscs() const {
     std::vector<DiscKind> missing;
     for (const DiscKind disc : {DiscKind::Install, DiscKind::Play}) {
         const auto fileCount = sourceFileCounts_.find(disc);
-        if (!sourceRoots_.contains(disc) || fileCount == sourceFileCounts_.end() ||
-            fileCount->second == 0u) {
+        const bool hasSource = std::any_of(sources_.begin(), sources_.end(),
+                                           [disc](const auto& source) {
+            return source.second.disc == disc;
+        });
+        if (!hasSource || fileCount == sourceFileCounts_.end() || fileCount->second == 0u) {
             missing.push_back(disc);
         }
     }
@@ -520,12 +976,23 @@ std::vector<std::string> GameDataCatalog::executableCandidates() const {
 
 std::string GameDataCatalog::toJson() const {
     std::ostringstream output;
-    output << "{\n  \"schema_version\": 1,\n  \"missing_discs\": [";
+    output << "{\n  \"schema_version\": 2,\n  \"missing_discs\": [";
     const std::vector<DiscKind> missing = missingDiscs();
     for (std::size_t i = 0; i < missing.size(); ++i) {
         output << (i == 0u ? "\n    \"" : ",\n    \"") << toString(missing[i]) << '"';
     }
     if (!missing.empty()) {
+        output << '\n' << "  ";
+    }
+    output << "],\n  \"sources\": [";
+    std::size_t sourceIndex = 0;
+    for (const auto& [id, source] : sources_) {
+        output << (sourceIndex++ == 0u ? "\n" : ",\n")
+               << "    {\"source_id\": \"" << jsonEscape(id) << "\", \"disc\": \""
+               << toString(source.disc) << "\", \"format\": \"" << toString(source.format)
+               << "\"}";
+    }
+    if (!sources_.empty()) {
         output << '\n' << "  ";
     }
     output << "],\n  \"files\": [";
@@ -546,7 +1013,9 @@ std::string GameDataCatalog::toJson() const {
             for (std::size_t originIndex = 0; originIndex < variant.origins.size(); ++originIndex) {
                 const FileOrigin& origin = variant.origins[originIndex];
                 output << (originIndex == 0u ? "" : ",") << "{\"disc\": \"" << toString(origin.disc)
-                       << "\", \"source_path\": \"" << jsonEscape(origin.sourceRelativePath) << "\"}";
+                       << "\", \"source_id\": \"" << jsonEscape(origin.sourceId)
+                       << "\", \"source_path\": \"" << jsonEscape(origin.sourceRelativePath)
+                       << "\", \"byte_offset\": " << origin.byteOffset << "}";
             }
             output << "]}";
         }
