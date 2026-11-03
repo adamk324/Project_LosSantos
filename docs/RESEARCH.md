@@ -122,6 +122,17 @@ the RPF directory tables, establish that the four files form one archive, or
 show that they are independent archives. No payload file was extracted or
 decrypted.
 
+The first 16 bytes of each part are recorded as raw bytes. The following
+32-bit values are only big-endian interpretations at the shown offsets; they
+are not treated as validated entry counts, table sizes, or encryption fields:
+
+| File | Raw bytes (0x00-0x0F) | Raw word at 0x04 | Raw word at 0x08 | Raw word at 0x0C |
+|---|---|---:|---:|---:|
+| `part0.rpf` | `52504637000002a480002a900ffffff7` | `0x000002A4` | `0x80002A90` | `0x0FFFFFF7` |
+| `part1.rpf` | `5250463700000156800012900ffffff7` | `0x00000156` | `0x80001290` | `0x0FFFFFF7` |
+| `part2.rpf` | `52504637000000d480000a600ffffff7` | `0x000000D4` | `0x80000A60` | `0x0FFFFFF7` |
+| `part3.rpf` | `5250463700000094800008100ffffff7` | `0x00000094` | `0x80000810` | `0x0FFFFFF7` |
+
 The names, matching title IDs, ordinal suffixes, file-table entries, and
 signature bytes are confirmed observations. Any interpretation of the
 `partN.rpf` files' relationship beyond their matching numbering and signatures

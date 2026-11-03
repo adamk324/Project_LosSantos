@@ -34,3 +34,5 @@
   synthetic coverage for the metadata-only table reader.
 - Reviewed a console RPF7 reader lead and documented why it is not yet a
   suitable, license-verified metadata-only parser for these archives.
+- Recorded raw 16-byte prefixes for the four package-contained RPF parts
+  without interpreting unvalidated header fields.

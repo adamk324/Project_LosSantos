@@ -56,8 +56,10 @@ Each public file table contains two root entries: a `partN.rpf` file and a
 their combined declared size is 8,209,401,856 bytes. This establishes the
 package contents' public names, sizes, and first signature bytes, but not
 whether the four RPF parts are a single multipart archive or separate related
-archives. The in-project metadata parser currently handles one table block
-and does not read payload content or verify the STFS hash tree.
+archives. Raw 16-byte prefixes are recorded without assigning unvalidated
+header fields in [RESEARCH.md](./RESEARCH.md). The in-project metadata parser
+currently handles one table block and does not read payload content or verify
+the STFS hash tree.
 
 The RPF conflict files begin with `RPF7`. Their full-file SHA-256 hashes,
 sizes, big-endian header observations, and the limits of those observations
